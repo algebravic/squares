@@ -87,7 +87,7 @@ class MaxDigits:
                         prefix + (ind, (pdig + power * ddig) % modulus))
                     yield [- prev_f, - this_d, this_f]
             power = (self._base * power) % modulus
-        self._end_sums[modulus] = prefix + (self._num - 1)
+        self._end_sums[modulus] = prefix + (self._num - 1,)
 
     def _digit_data(self,
                     prefix: Tuple[str, int, ...],
@@ -111,6 +111,10 @@ class MaxDigits:
         for ind in range(-1, self._num):
             yield from self._digit_data(prefix + (ind,), modulus)
 
+    def _moduli_sieve(self, modulus: int) -> Iterable[List[int]]:
+        """
+        Sieving Constraints
+        """
         square_mod = {(_ ** 2) % modulus for _ in range(modulus)}
         nonsquares = set(range(modulus)).difference(square_mod)
         # yield [self._pool.id(('f', modulus, self._num - 1, elt))
@@ -130,6 +134,7 @@ class MaxDigits:
         for modulus in self._moduli:
             yield from self._moduli_data(modulus)
             yield from self._addition_data(modulus)
+            yield from self._moduli_sieve(modulus)
 
     def _extract(self, soln: List[int] | None) -> List[int] | None:
         """
