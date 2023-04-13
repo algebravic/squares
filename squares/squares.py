@@ -54,9 +54,11 @@ class MaxDigits:
         self._num = num
         self._base = base
         self._pool = IDPool()
+        # Use the bound B^(c * n * log(n))
         self._generate_moduli(coeff * num * log(num) * log(base))
         print(f"Largest modulus = {self._moduli[-1]}")
         print(f"Sum of moduli = {sum(self._moduli)}")
+        self._end_sums = {}
 
     def _generate_moduli(self, bound: float):
         """
@@ -74,17 +76,18 @@ class MaxDigits:
         """
         Addition mod p
         """
-
+        prefix = ('f', modulus)
         power = 1
         for ind in range(self._num):
-            for dig in range(modulus):
-                prev_f = self._pool.id(('f', modulus, ind - 1, dig))
+            for pdig in range(modulus):
+                prev_f = self._pool.id(prefix + (ind - 1, pdig))
                 for ddig in range(self._base):
                     this_d = self._pool.id(('d', ind, ddig))
                     this_f = self._pool.id(
-                        ('f', modulus, ind, (dig + power * ddig) % modulus))
+                        prefix + (ind, (pdig + power * ddig) % modulus))
                     yield [- prev_f, - this_d, this_f]
             power = (self._base * power) % modulus
+        self._end_sums[modulus] = prefix + (self._num - 1)
 
     def _digit_data(self,
                     prefix: Tuple[str, int, ...],
@@ -103,23 +106,24 @@ class MaxDigits:
         CNF encoding the sieve variables.
         """
         # Empty sum is 0
-        yield [self._pool.id(('f', modulus, -1, 0))]
+        prefix = ('f', modulus)
+        yield [self._pool.id(prefix + (-1, 0))]
         for ind in range(-1, self._num):
-            yield from self._digit_data(('f', modulus, ind), modulus)
+            yield from self._digit_data(prefix + (ind,), modulus)
 
         square_mod = {(_ ** 2) % modulus for _ in range(modulus)}
         nonsquares = set(range(modulus)).difference(square_mod)
         # yield [self._pool.id(('f', modulus, self._num - 1, elt))
         #        for elt in square_mod]
+        result = self._end_sums[modulus]
         yield from (
-            [-self._pool.id(('f', modulus, self._num - 1, elt))]
-            for elt in nonsquares)
+            [-self._pool.id(result + (elt,))] for elt in nonsquares)
 
     def model(self) -> Iterable[List[int]]:
         """
         The model for the max digits problem.
         """
-        for ind in range(-1, self._num):
+        for ind in range(self._num):
             yield from self._digit_data(('d', ind), self._base)
         # Leading digit is not 0
         yield [-self._pool.id(('d', self._num - 1, 0))]
