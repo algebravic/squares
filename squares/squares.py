@@ -72,6 +72,107 @@ class MaxDigits:
             log_prod += log(prim)
             self._moduli.append(prim)
 
+    def _digit_data(self,
+                    prefix: Tuple[str, int, ...],
+                    rbase: int) -> Iterable[List[int]]:
+        """
+        CNF constraining the digit variables.
+        """
+        yield from CardEnc.equals(lits = [self._pool.id(prefix + (_,))
+                                          for _ in range(rbase)],
+                                  bound = 1,
+                                  encoding = EncType.ladder,
+                                  vpool = self._pool)
+
+    def _reduce_tree(self, modulus: int,
+                     values: Tuple[str, int, ...]) -> Iterable[List[int]]:
+        """
+        Binary tree reduction for addition mod q.
+        Each element is a prefix, which contributes value(prefix)
+        to the sum
+        """
+        cvalues = values.copy()
+        level = 0
+        while len(cvalues) > 1:
+            nvalues = []
+            prefix = ('t', modulus, level)
+            level += 1
+            for ind in range(0, len(cvalues), 2):
+                res = prefix + (ind // 2,)
+                yield from self._digit_data(res, self._base)
+                nvalues.append(res)
+                for dig0 in range(modulus):
+                    data0 = self._pool.id(cvalues[ind] + (dig0,))
+                    for dig1 in range(modulus):
+                        data1 = self._pool.id(cvalues[ind+1] + (dig1,))
+                        yield [-data0, -data1,
+                               self._pool.id(res + (dig0 + dig1) % modulus)]
+            if len(values) % 2 == 1:
+                nvalues.append(cvalues[-1])
+            cvalues = nvalues
+        self._end_sums[modulus] = cvalues[0]
+
+    def _segment_add(self,
+                     modulus: int,
+                     multiplier: int,
+                     values: List[Tuple[str, int, ...]],
+                     prefix: Tuple[str, int, ...]) -> Iterable[List[int]]:
+        """
+        Add a segment of self._base number mod q
+        yielding a result.
+
+        Input:
+          modulus: the modulus for the result
+          multiplier: the initial integer multiplier
+          values: the individual digits in base self._base
+          prefix: the prefix used for the result
+        """
+        power = multiplier
+        for ind, pref in enumerate(values):
+            for ddig in range(self._base):
+                this_d = self._pool.id(pref + (ddig,))
+                if ind == 0:
+                    this_f = self._pool.id(
+                        prefix + (ind, (power * ddig) % modulus))
+                    yield [-this_d, this_f]
+                else:
+                    for pdig in range(modulus):
+                        this_f = self._pool.id(
+                            pref + (ind, (pdig + power * ddig) % modulus))
+                        prev_f = self._pool.id(prefix + (ind - 1, pdig))
+                        yield [- prev_f, - this_d, this_f]
+            power = (self._base * power) % modulus
+
+
+    def _segmented_tree(self, modulus: int,
+                        segment_size: int) -> Iterable[List[int]]:
+        """
+        Generate a hybrid addition:
+        first add up segments of the digits.
+        Then finish up by the binary tree add.
+        """
+        svalues = []
+        power = 1
+        for ind in range(self._num // segment_size):
+            prefix = ('g', modulus, ind)
+            start = ind * segment_size
+            end = min(self._num, start + segment_size)
+            svalues.append(prefix + (end - 1,))
+            for ddig in range(self._base):
+                this_d = self._pool.id(('d', ind, ddig))
+                this_f = self._pool.id(
+                    prefix + (start, (power * ddig) % modulus))
+                yield [-this_d, this_f]
+                for jind in range(start + 1, end):
+                    for pdig in range(modulus):
+                        this_f = self._pool.id(
+                            prefix + (jind, (pdig + power * ddig) % modulus))
+                        prev_f = self._pool.id(prefix + (jind - 1, pdig))
+                        yield [-prev_f, - this_d, this_f]
+            power = (power * self._base ** (end - start)) % modulus
+        # Now finish up with the binary tree
+        yield from self._reduce_tree(modulus, svalues)
+
     def _addition_data(self, modulus: int) -> Iterable[List[int]]:
         """
         Addition mod p
@@ -88,18 +189,6 @@ class MaxDigits:
                     yield [- prev_f, - this_d, this_f]
             power = (self._base * power) % modulus
         self._end_sums[modulus] = prefix + (self._num - 1,)
-
-    def _digit_data(self,
-                    prefix: Tuple[str, int, ...],
-                    rbase: int) -> Iterable[List[int]]:
-        """
-        CNF constraining the digit variables.
-        """
-        yield from CardEnc.equals(lits = [self._pool.id(prefix + (_,))
-                                          for _ in range(rbase)],
-                                  bound = 1,
-                                  encoding = EncType.ladder,
-                                  vpool = self._pool)
 
     def _moduli_data(self, modulus: int) -> Iterable[List[int]]:
         """
